@@ -56,7 +56,7 @@ class Evaluator():
         img = load_image(image_path)
         img, _, ratio, dw, dh = letterbox(img, None, self.imsize)
         if (transform is not None):
-            self.img = transform(self.img).unsqueeze(0)
+            self.img = transform(img).unsqueeze(0)
         self.dw = dw
         self.dh = dh
         self.ratio =ratio
@@ -67,9 +67,9 @@ class Evaluator():
             examples=examples, seq_length=self.query_len, tokenizer=self.tokenizer)
         word_id = features[0].input_ids
         word_mask = features[0].input_mask
-        return np.array(word_id, dtype=int), np.array(word_mask, dtype=int)
+        return torch.from_numpy(np.array(word_id, dtype=int)).unsqueeze(0), torch.from_numpy(np.array(word_mask, dtype=int)).unsqueeze(0)
     def eval(self):
-        model.eval()
+        self.model.eval()
         word_id, word_mask = self.tokenize_text()
         img = self.img
         dw = self.dw
@@ -78,9 +78,9 @@ class Evaluator():
 
         image = img.cuda()
         word_id = word_id.cuda()
-        word_mask = word_mask.cuda
+        word_mask = word_mask.cuda()
         with torch.no_grad():
-            pred_anchor_list, attnscore_list = model(image, word_id, word_mask)
+            pred_anchor_list, attnscore_list = self.model(image, word_id, word_mask)
         pred_anchor = pred_anchor_list[-1]
         pred_anchor = pred_anchor.view(   \
                 pred_anchor.size(0),9,5,pred_anchor.size(2),pred_anchor.size(3))
@@ -115,20 +115,26 @@ class Evaluator():
         pred_bbox[:,1], pred_bbox[:,3] = (pred_bbox[:,1]-dh)/ratio, (pred_bbox[:,3]-dh)/ratio
 
         ## convert pred, gt box to original scale with meta-info
-        top, bottom = round(float(dh[0]) - 0.1), args.size - round(float(dh[0]) + 0.1)
-        left, right = round(float(dw[0]) - 0.1), args.size - round(float(dw[0]) + 0.1)
+        top, bottom = round(float(dh) - 0.1), args.size - round(float(dh) + 0.1)
+        left, right = round(float(dw) - 0.1), args.size - round(float(dw) + 0.1)
         img_np = img[0,:,top:bottom,left:right].data.cpu().numpy().transpose(1,2,0)
 
         ratio = float(ratio)
         new_shape = (round(img_np.shape[1] / ratio), round(img_np.shape[0] / ratio))
         ## also revert image for visualization
         img_np = cv2.resize(img_np, new_shape, interpolation=cv2.INTER_CUBIC)
-
+        visualize_img = img_np
         img_np = Variable(torch.from_numpy(img_np.transpose(2,0,1)).cuda().unsqueeze(0))
 
         pred_bbox[:,:2], pred_bbox[:,2], pred_bbox[:,3] = \
             torch.clamp(pred_bbox[:,:2], min=0), torch.clamp(pred_bbox[:,2], max=img_np.shape[3]), torch.clamp(pred_bbox[:,3], max=img_np.shape[2])
-        return pred_bbox
+        pred_bbox = pred_bbox.detach().cpu().numpy()
+        pred_bbox.astype('int')
+        visualize_img /= np.max(visualize_img)/255
+        color = (255, 0, 0)
+        visualize_img = cv2.rectangle(visualize_img, (pred_bbox[0][0], pred_bbox[0][1]), (pred_bbox[0][2], pred_bbox[0][3]), color)
+        cv2.imwrite('visualize.png', visualize_img)
+        return pred_bbox, pred_conf
 
 
 def main():
@@ -140,6 +146,8 @@ def main():
                         help='scale used to calculate anchors defined in model cfg file')
     parser.add_argument('--emb_size', default=512, type=int,
                         help='fusion module embedding dimensions')
+    parser.add_argument('--dataset', default='referit', type=str,
+                        help='referit/flickr/unc/unc+/gref')
     parser.add_argument('--pretrain', default='', type=str, metavar='PATH',
                         help='pretrain support load state_dict that are not identical, while have no loss saved as resume')
     parser.add_argument('--seed', default=13, type=int, help='random seed')
@@ -156,16 +164,13 @@ def main():
     global args, anchors_full
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, filename="./logs/%s"%args.savename, filemode="a+",
-                        format="%(asctime)-15s %(levelname)-8s %(message)s")
-    logging.info(str(sys.argv))
-    logging.info(str(args))
     input_transform = Compose([
         ToTensor(),
         Normalize(
             mean=[0.485, 0.456, 0.406],
             std=[0.229, 0.224, 0.225])
     ])
+    args.gsize = 8
 
     cudnn.benchmark = False
     cudnn.deterministic = True
@@ -178,7 +183,7 @@ def main():
     anchors = '10,13,  16,30,  33,23,  30,61,  62,45,  59,119,  116,90,  156,198,  373,326'
     anchors = [float(x) for x in anchors.split(',')]
     anchors_full = [(anchors[i], anchors[i + 1]) for i in range(0, len(anchors), 2)][::-1]
-
+    print(args)
     model = grounding_model_multihop(NFilm=args.nflim, fusion=args.fusion, intmd=args.mstack, mstage=args.mstage, \
         emb_size=args.emb_size, coordmap=True, convlstm=args.large, \
         bert_model=args.bert_model, dataset=args.dataset, tunebert=args.tunebert)
@@ -186,5 +191,9 @@ def main():
     model=load_pretrain(model,args,logging)
 
     evaluator = Evaluator(args.impath, args.text, model, input_transform)
-    pred_bbox = evaluator.eval()
-    print(pred_bbox)
+    predict = evaluator.eval()
+
+
+
+if __name__ == "__main__":
+    main()
