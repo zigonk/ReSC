@@ -144,6 +144,12 @@ Pre-trained models are availble in [[Gdrive]](https://drive.google.com/drive/fol
             <td></td>
         </tr> -->
 
+## Demo
+```
+python test.py --impath path/to/img --text QUERY_SENTENCE --pretrain path/to/pretrained
+```
+
+
 ### Citation
 
     @inproceedings{yang2020improving,
