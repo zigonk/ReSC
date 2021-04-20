@@ -133,8 +133,9 @@ class Evaluator():
         pred_bbox.astype('int')
         return pred_bbox, max_conf_ii
 
-def save_visualize_img(vis_path, frame, exp, bbox, mask):
-    frame += 0.3 * mask
+def save_visualize_img(vis_path, frame, exp, bbox, mask = None):
+    if mask is not None:
+        frame += 0.3 * mask
     font                   = cv2.FONT_HERSHEY_SIMPLEX
     bottomLeftCornerOfText = (20, 0)
     fontScale              = 1
@@ -149,6 +150,10 @@ def save_visualize_img(vis_path, frame, exp, bbox, mask):
                         fontColor,
                         lineType)
     cv2.imwrite(vis_path, visualize_img)
+
+def load_frame_from_id(frame_id):
+    frame_path = os.path.join(args.imdir, f'/{vid}/{frame_id}.jpg')
+    return load_image(frame_path)
 
 
 
@@ -216,17 +221,20 @@ def main():
         expressions = [expression['exp'] for expression in videos[vid]['expressions']]
         instance_ids = [expression['obj_id'] for expression in videos[vid]['expressions']]
         frame_ids = videos[vid]['frames']
-        for fid in frame_ids:
-            vis_dir = os.path.join(args.vis, f'/{vid}/{fid}/')
-            if os.path.exists(vis_dir):
-                os.makedirs(vis_dir)
-            for index, exp in enumerate(expressions):
-                vis_path = os.path.join(vis_dir, f'exp_{index}.png')
-                frame = load_frame_from_id(frame_ids)
-                mask = load_mask_from_id(frame_ids)
-                evaluator = Evaluator(frame, exp, model, input_transform)
-                pred_bbox, pred_score = evaluator.eval()
-                save_visualize_img(vis_path, frame, exp, pred_bbox, mask)
+        print(frame_ids)
+        print(expressions)
+        # for fid in frame_ids:
+        #     vis_dir = os.path.join(args.vis, f'/{vid}/{fid}/')
+        #     if os.path.exists(vis_dir):
+        #         os.makedirs(vis_dir)
+        #     for index, exp in enumerate(expressions):
+        #         vis_path = os.path.join(vis_dir, f'exp_{index}.png')
+        #         frame = load_frame_from_id(frame_ids)
+        #         # mask = load_mask_from_id(frame_ids)
+        #         evaluator = Evaluator(frame, exp, model, input_transform)
+        #         pred_bbox, pred_score = evaluator.eval()
+        #         save_visualize_img(vis_path, frame, exp, pred_bbox)
+        break
 
 
 
