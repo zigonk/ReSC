@@ -6,6 +6,8 @@ import random
 import json
 import math
 from distutils.version import LooseVersion
+
+from itertools import combinations
 import scipy.misc
 import logging
 import datetime
@@ -47,14 +49,13 @@ def load_image(img_path):
     return img
 
 class Evaluator():
-    def __init__(self, image_path, phrase, model, transform=None, imsize=256, max_query_len=128, bert_model='bert-base-uncased'):
+    def __init__(self, image, phrase, model, transform=None, imsize=256, max_query_len=128, bert_model='bert-base-uncased'):
         self.tokenizer = BertTokenizer.from_pretrained(bert_model, do_lower_case=True)
         self.query_len = max_query_len
         self.phrase = phrase
         self.imsize = imsize
         self.model = model
-        img = load_image(image_path)
-        img, _, ratio, dw, dh = letterbox(img, None, self.imsize)
+        img, _, ratio, dw, dh = letterbox(image, None, self.imsize)
         if (transform is not None):
             self.img = transform(img).unsqueeze(0)
         self.dw = dw
@@ -130,17 +131,33 @@ class Evaluator():
             torch.clamp(pred_bbox[:,:2], min=0), torch.clamp(pred_bbox[:,2], max=img_np.shape[3]), torch.clamp(pred_bbox[:,3], max=img_np.shape[2])
         pred_bbox = pred_bbox.detach().cpu().numpy()
         pred_bbox.astype('int')
-        visualize_img /= np.max(visualize_img)/255
-        color = (255, 0, 0)
-        visualize_img = cv2.rectangle(visualize_img, (pred_bbox[0][0], pred_bbox[0][1]), (pred_bbox[0][2], pred_bbox[0][3]), color)
-        cv2.imwrite('visualize.png', visualize_img)
-        return pred_bbox, pred_conf
+        return pred_bbox, max_conf_ii
+
+def save_visualize_img(vis_path, frame, exp, bbox, mask):
+    frame += 0.3 * mask
+    font                   = cv2.FONT_HERSHEY_SIMPLEX
+    bottomLeftCornerOfText = (20, 0)
+    fontScale              = 1
+    fontColor              = (255,255,255)
+    lineType               = 2
+    color = (255, 0, 0)
+    visualize_img = cv2.rectangle(frame, (pred_bbox[0][0], pred_bbox[0][1]), (pred_bbox[0][2], pred_bbox[0][3]), color)
+    visualize_img = cv2.putText(visualize_img, exp, 
+                        bottomLeftCornerOfText, 
+                        font, 
+                        fontScale,
+                        fontColor,
+                        lineType)
+    cv2.imwrite(vis_path, visualize_img)
+
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--impath', default='', help='image path')
-    parser.add_argument('--text', default='', help='query sentence')
+    parser.add_argument('--imdir', default='', help='image path')
+    parser.add_argument('--meta', default='', help='meta expression')
+    parser.add_argument('--vis', default='', help='visualize directory')
+    parser.add_argument('--result', default='', help='save detection')
     parser.add_argument('--size', default=256, type=int, help='image size')
     parser.add_argument('--anchor_imsize', default=416, type=int,
                         help='scale used to calculate anchors defined in model cfg file')
@@ -190,8 +207,26 @@ def main():
     model = torch.nn.DataParallel(model).cuda()
     model=load_pretrain(model,args,logging)
 
-    evaluator = Evaluator(args.impath, args.text, model, input_transform)
-    predict = evaluator.eval()
+    meta_expression = {}
+    with open(args.meta) as meta_file:
+        meta_expression = json.load(meta_file)
+    
+    videos = meta_expression['videos']
+    for vid in videos.keys():  
+        expressions = [expression['exp'] for expression in videos[vid]['expressions']]
+        instance_ids = [expression['obj_id'] for expression in videos[vid]['expressions']]
+        frame_ids = videos[vid]['frames']
+        for fid in frame_ids:
+            vis_dir = os.path.join(args.vis, f'/{vid}/{fid}/')
+            if os.path.exists(vis_dir):
+                os.makedirs(vis_dir)
+            for index, exp in enumerate(expressions):
+                vis_path = os.path.join(vis_dir, f'exp_{index}.png')
+                frame = load_frame_from_id(frame_ids)
+                mask = load_mask_from_id(frame_ids)
+                evaluator = Evaluator(frame, exp, model, input_transform)
+                pred_bbox, pred_score = evaluator.eval()
+                save_visualize_img(vis_path, frame, exp, pred_bbox, mask)
 
 
 
