@@ -10,6 +10,7 @@ from distutils.version import LooseVersion
 from itertools import combinations
 import scipy.misc
 import logging
+from tqdm.notebook import tqdm
 import datetime
 import cv2
 import matplotlib as mpl
@@ -45,6 +46,8 @@ from utils.utils import *
 from utils.checkpoint import save_checkpoint, load_pretrain, load_resume
 
 def load_image(img_path):
+    # if (not os.path.exists(img_path)):
+    #     print(f'Not found {img_path}')
     img = cv2.imread(img_path)
     return img
 
@@ -133,26 +136,27 @@ class Evaluator():
         pred_bbox.astype('int')
         return pred_bbox, max_conf_ii
 
-def save_visualize_img(vis_path, frame, exp, bbox, mask = None):
+def save_visualize_img(vis_path, img, exp, pred_bbox, mask = None):
+    frame = img.copy()
     if mask is not None:
         frame += 0.3 * mask
     font                   = cv2.FONT_HERSHEY_SIMPLEX
-    bottomLeftCornerOfText = (20, 0)
+    bottomLeftCornerOfText = (30, 30)
     fontScale              = 1
     fontColor              = (255,255,255)
     lineType               = 2
     color = (255, 0, 0)
-    visualize_img = cv2.rectangle(frame, (pred_bbox[0][0], pred_bbox[0][1]), (pred_bbox[0][2], pred_bbox[0][3]), color)
-    visualize_img = cv2.putText(visualize_img, exp, 
+    frame = cv2.rectangle(frame, (pred_bbox[0][0], pred_bbox[0][1]), (pred_bbox[0][2], pred_bbox[0][3]), color)
+    frame = cv2.putText(frame, exp, 
                         bottomLeftCornerOfText, 
                         font, 
                         fontScale,
                         fontColor,
                         lineType)
-    cv2.imwrite(vis_path, visualize_img)
+    cv2.imwrite(vis_path, frame)
 
-def load_frame_from_id(frame_id):
-    frame_path = os.path.join(args.imdir, f'/{vid}/{frame_id}.jpg')
+def load_frame_from_id(vid, frame_id):
+    frame_path = os.path.join(args.imdir, str(f'{vid}/{frame_id}.jpg'))
     return load_image(frame_path)
 
 
@@ -215,26 +219,24 @@ def main():
     meta_expression = {}
     with open(args.meta) as meta_file:
         meta_expression = json.load(meta_file)
-    print(meta_expression)
     videos = meta_expression['videos']
-    for vid in videos.keys():  
-        expressions = [expression['exp'] for expression in videos[vid]['expressions']]
-        instance_ids = [expression['obj_id'] for expression in videos[vid]['expressions']]
+    for vid in tqdm(videos.keys()):  
+        expressions = [videos[vid]['expressions'][expression_id]['exp'] for expression_id in videos[vid]['expressions'].keys()]
+        # instance_ids = [expression['obj_id'] for expression_id in videos[vid]['expressions']]
         frame_ids = videos[vid]['frames']
-        print(frame_ids)
-        print(expressions)
-        # for fid in frame_ids:
-        #     vis_dir = os.path.join(args.vis, f'/{vid}/{fid}/')
-        #     if os.path.exists(vis_dir):
-        #         os.makedirs(vis_dir)
-        #     for index, exp in enumerate(expressions):
-        #         vis_path = os.path.join(vis_dir, f'exp_{index}.png')
-        #         frame = load_frame_from_id(frame_ids)
-        #         # mask = load_mask_from_id(frame_ids)
-        #         evaluator = Evaluator(frame, exp, model, input_transform)
-        #         pred_bbox, pred_score = evaluator.eval()
-        #         save_visualize_img(vis_path, frame, exp, pred_bbox)
-        break
+        for fid in frame_ids:
+            for index, exp in enumerate(expressions):
+                frame = load_frame_from_id(vid, fid)
+                if frame is None:
+                    continue
+                vis_dir = os.path.join(args.vis, str(f'{vid}/{index}/'))
+                if not os.path.exists(vis_dir):
+                    os.makedirs(vis_dir)
+                vis_path = os.path.join(vis_dir, str(f'{fid}.jpg'))
+                # mask = load_mask_from_id(frame_ids)
+                evaluator = Evaluator(frame, exp, model, input_transform)
+                pred_bbox, pred_score = evaluator.eval()
+                save_visualize_img(vis_path, frame, exp, pred_bbox)
 
 
 
