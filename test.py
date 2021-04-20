@@ -215,7 +215,7 @@ def main():
     meta_expression = {}
     with open(args.meta) as meta_file:
         meta_expression = json.load(meta_file)
-    
+    print(meta_expression)
     videos = meta_expression['videos']
     for vid in videos.keys():  
         expressions = [expression['exp'] for expression in videos[vid]['expressions']]
